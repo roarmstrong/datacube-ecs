@@ -11,19 +11,34 @@
 				{
 					"listen": "test",
 					"script": {
-						"id": "35bff06a-1bb6-4157-95de-07cb2782db92",
+						"id": "f5717675-84e4-4c90-8f31-074ec77a09c7",
 						"type": "text/javascript",
 						"exec": [
+							"var _ = require('lodash');",
+							"",
 							"pm.test(\"Status code is 200\", function () {",
 							"    pm.response.to.have.status(200);",
 							"});",
 							"",
-							"// var jsonObject = xml2Json(responseBody);",
+							"var jsonData = xml2Json(responseBody);",
+							"var caps = jsonData.WMS_Capabilities;",
 							"",
-							"// pm.test(\"Your test name\", function () {",
-							"//     var jsonData = pm.response.json();",
-							"//     pm.expect(jsonData.value).to.eql(100);",
-							"// });"
+							"pm.test(\"Test product names\", function () {",
+							"    function extractNestedLayers(layer) {",
+							"        l = layer.Layer;",
+							"        if (_.isArrayLike(l)) {",
+							"            return _.flatten(l);",
+							"        }",
+							"        return l;",
+							"    }",
+							"    var layers = _.flatMapDeep(caps.Capability.Layer.Layer, extractNestedLayers);",
+							"    var names  = _.map(layers, function(l) {",
+							"        return l.Name;",
+							"    });",
+							"    pm.expect(layers).to.have.lengthOf(4);",
+							"    pm.expect(names).to.include(\"s2b_nrt_granule_nbar_t\");",
+							"    pm.expect(names).to.include(\"s2a_nrt_granule_nbar_t\");",
+							"});"
 						]
 					}
 				}

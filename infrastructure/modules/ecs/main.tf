@@ -1,7 +1,7 @@
 resource "aws_ecs_task_definition" "service-task" {
   family                = "${var.family}"
   container_definitions = "${var.container_definitions}"
-  task_role_arn         = "${aws_iam_role.task_role.arn}"
+  task_role_arn         = "${var.task_role_arn}"
 
   volume {
     name      = "${var.volume_name}"
@@ -18,7 +18,7 @@ resource "aws_ecs_service" "service" {
   desired_count   = "${var.task_desired_count}"
 
   load_balancer {
-    target_group_arn = "${element(var.target_group_arn,0)}"
+    target_group_arn = "${var.target_group_arn}"
     container_name   = "${var.container_name}"
     container_port   = "${var.container_port}"
   }
@@ -36,18 +36,6 @@ resource "null_resource" "aws_ecs_task" {
   provisioner "local-exec" {
     command = "aws ecs run-task --cluster ${var.cluster} --task-definition ${aws_ecs_task_definition.service-task.arn}"
   }
-
-  depends_on = ["aws_iam_role.task_role"]
-}
-
-resource "aws_iam_policy" "scheduled_task" {
-  name   = "${var.cluster}_${var.workspace}_${var.name}_s_policy"
-  policy = "${data.aws_iam_policy_document.scheduled_task.json}"
-}
-
-resource "aws_iam_role_policy_attachment" "schedule_policy_role" {
-  role       = "${aws_iam_role.task_role.name}"
-  policy_arn = "${aws_iam_policy.scheduled_task.arn}"
 }
 
 resource "aws_cloudwatch_event_rule" "task" {
@@ -60,7 +48,7 @@ resource "aws_cloudwatch_event_target" "task" {
   count    = "${var.schedulable ? 1 : 0}"
   rule     = "${aws_cloudwatch_event_rule.task.name}"
   arn      = "${data.aws_ecs_cluster.cluster.arn}"
-  role_arn = "${aws_iam_role.task_role.arn}"
+  role_arn = "${var.task_role_arn}"
 
   ecs_target {
     task_count          = "${var.task_desired_count}"

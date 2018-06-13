@@ -9,4 +9,6 @@ cat tests/${WORKSPACE}/${WORKSPACE}-data.json\
     > "${WORKSPACE}-data.json"
 
 newman run tests/${WORKSPACE}/${WORKSPACE}.postman_collection.json -d ${WORKSPACE}-data.json
+success="$?"
 rm "${WORKSPACE}-data.json"
+exit "$success"

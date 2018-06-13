@@ -15,11 +15,6 @@ variable "service_name" {
   description = "The name of the service"
 }
 
-variable "webservice" {
-  default     = true
-  description = "Whether the task should restart and be publically accessible"
-}
-
 variable "owner" {
   description = "A mailing list that owns the service"
 }
@@ -74,4 +69,9 @@ variable "ssl_cert_domain_name" {
 variable "ssl_policy_name" {
   default     = "ELBSecurityPolicy-2016-08"
   description = "The name of the SSL policy for an ALB listener. See https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-https-listener.html#describe-ssl-policies"
+}
+
+variable "hosts" {
+  type    = "map"
+  default = { }
 }

@@ -19,3 +19,16 @@ resource "aws_route53_record" "www" {
     evaluate_target_health = "${var.evaluate_target_health}"
   }
 }
+
+resource "aws_route53_record" "all_subdomains" {
+  count   = "${var.enable && var.all_subdomains ? 1 : 0}"
+  zone_id = "${data.aws_route53_zone.selected.zone_id}"
+  name    = "*.${var.domain_name}"
+  type    = "${var.record_type}"
+
+  alias {
+    name = "${var.target_dns_name}"
+    zone_id = "${var.target_dns_zone_id}"
+    evaluate_target_health = false
+  }
+}

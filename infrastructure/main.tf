@@ -16,15 +16,13 @@ terraform {
 # to update a task definition to an exact version
 # This means that running Terraform after a docker image
 # changes, the task will be updated.
-data "docker_registry_image" "latest" {
-  name = "${var.docker_image}"
-}
-
-module "docker_help" {
+module "docker" {
   source = "modules/docker"
 
-  image_name   = "${data.docker_registry_image.latest.name}"
-  image_digest = "${data.docker_registry_image.latest.sha256_digest}"
+  images = {
+    green  = "opendatacube/wms:0.2.1"
+    blue = "opendatacube/wms:0.2.1"
+  }
 }
 
 # ===============
@@ -33,12 +31,6 @@ module "docker_help" {
 # set the public URL information here
 
 locals {
-  # base url that corresponds to the Route53 zone
-  base_url = "dea.gadevs.ga"
-
-  # url that points to the service
-  public_url = "datacube-wms.${local.base_url}"
-
   public_subnet_ids = ["${data.aws_subnet.a.id}", "${data.aws_subnet.b.id}", "${data.aws_subnet.c.id}"]
 
   default_environment_vars = {
@@ -68,7 +60,7 @@ module "container_def" {
   source = "github.com/eiara/terraform_container_definitions"
 
   name      = "${var.name}"
-  image     = "${var.docker_image}"
+  image     = "${module.docker.name_and_digest["green"]}"
   essential = true
   memory    = "${var.memory}"
 
@@ -87,13 +79,34 @@ module "container_def" {
   command     = ["${compact(split(" ",var.docker_command))}"]
 }
 
-module "ecs_main" {
+module "container_def_blue" {
+  source = "github.com/eiara/terraform_container_definitions"
+
+  name      = "${var.name}"
+  image     = "${module.docker.name_and_digest["blue"]}"
+  essential = true
+  memory    = "${var.memory}"
+
+  logging_driver = "awslogs"
+
+  logging_options = {
+    "awslogs-region" = "${var.aws_region}"
+    "awslogs-group"  = "${var.cluster}/apps/${terraform.workspace}"
+  }
+
+  port_mappings = [{
+    "container_port" = "${var.container_port}"
+  }]
+
+  environment = "${local.env_vars}"
+  command     = ["${compact(split(" ",var.docker_command))}"]
+}
+
+module "ecs_green" {
   source = "modules/ecs"
 
   name         = "${var.name}"
-  docker_image = "${module.docker_help.name_and_digest_ecs}"
 
-  memory             = "768"
   container_port     = "${var.container_port}"
   container_name     = "${var.name}"
   task_desired_count = "${var.task_desired_count}"
@@ -102,23 +115,47 @@ module "ecs_main" {
 
   family = "${var.name}-service-task"
 
-  task_role_name   = "${var.name}-role"
-  target_group_arn = "${module.alb.alb_target_group}"
-  account_id       = "${data.aws_caller_identity.current.account_id}"
+  task_role_arn    = "${module.ecs_main.task_role_arn}"
+  target_group_arn = "${lookup(module.alb.target_groups, "green")}"
   webservice       = "${var.webservice}"
 
   # // container def
   container_definitions = "[${module.container_def.json}]"
-  custom_policy         = "${var.custom_policy}"
 
   # Scheduling definitions
   schedulable         = "${var.schedulable}"
   schedule_expression = "${var.schedule_expression}"
 
-  # DB Task
-  database_task     = "${var.database_task}"
-  new_database_name = "${var.new_database_name}"
-  state_bucket      = "${data.aws_ssm_parameter.state_bucket.value}"
+  # Tags
+  owner     = "${var.owner}"
+  cluster   = "${var.cluster}"
+  workspace = "${var.workspace}"
+}
+
+
+module "ecs_blue" {
+  source = "modules/ecs"
+
+  name         = "${var.name}_test"
+
+  container_port     = "${var.container_port}"
+  container_name     = "${var.name}"
+  task_desired_count = "1"
+
+  aws_region = "${var.aws_region}"
+
+  family = "${var.name}-service-task"
+
+  task_role_arn    = "${module.ecs_main.task_role_arn}"
+  target_group_arn = "${lookup(module.alb.target_groups, "blue")}"
+  webservice       = "${var.webservice}"
+
+  # // container def
+  container_definitions = "[${module.container_def_blue.json}]"
+
+  # Scheduling definitions
+  schedulable         = "${var.schedulable}"
+  schedule_expression = "${var.schedule_expression}"
 
   # Tags
   owner     = "${var.owner}"
@@ -139,26 +176,59 @@ module "alb" {
   container_port       = "${var.container_port}"
   security_group       = "${data.aws_security_group.alb_sg.id}"
   health_check_path    = "${var.health_check_path}"
-  webservice           = "${var.webservice}"
   enable_https         = "${var.enable_https}"
   ssl_cert_domain_name = "*.${local.ssl_cert_domain_name}"
   ssl_cert_region      = "${local.ssl_cert_region}"
+  hosts                = { 
+                           "green" = "${var.dns_name}.${local.dns_zone}"
+                           "blue"    = "blue.${var.dns_name}.${local.dns_zone}"
+                         }
+}
+
+module "ecs_main" {
+  source = "modules/ecs_common"
+
+  name         = "${var.name}"
+
+  aws_region = "${var.aws_region}"
+
+  account_id       = "${data.aws_caller_identity.current.account_id}"
+  task_role_name   = "${var.name}-role"
+
+  # DB Task
+  database_task     = "${var.database_task}"
+  new_database_name = "${var.new_database_name}"
+  state_bucket      = "${data.aws_ssm_parameter.state_bucket.value}"
+
+  # Tags
+  owner     = "${var.owner}"
+  cluster   = "${var.cluster}"
+  workspace = "${var.workspace}"
+}
+
+# Terraform doesn't lazily evaluate conditional expressions
+# we have to ensure there is something in the list for
+# terraform to not complain about an empty list, even if webservice is false
+locals {
+  cloudfront      = "${var.webservice && var.use_cloudfront}"
+  target_dns_name = "${local.cloudfront ? element(concat(module.cloudfront.dns_name   , list("")), 0)
+                                        : element(concat(module.alb.dns_name          , list("")), 0)}"
+  target_dns_zone = "${local.cloudfront ? element(concat(module.cloudfront.dns_zone_id, list("")), 0)
+                                        : element(concat(module.alb.dns_zone_id       , list("")), 0)}"
 }
 
 # Lack of a module count means we need to use flags
 # and counts inside the route53 module to conditionally
 # create the resources.
-# Terraform doesn't lazily evaluate conditional expressions
-# we have to ensure there is something in the list for
-# terraform to not complain about an empty list, even if webservice is false
 module "route53" {
   source = "modules/route53"
 
   domain_name        = "${var.dns_name}.${local.dns_zone}"
   zone_domain_name   = "${local.dns_zone}"
-  target_dns_name    = "${var.webservice ? element(concat(module.cloudfront.dns_name, list("")), 0) : ""}"
-  target_dns_zone_id = "${var.webservice ? element(concat(module.cloudfront.dns_zone_id, list("")), 0) : ""}"
+  target_dns_name    = "${var.webservice ? local.target_dns_name : ""}"
+  target_dns_zone_id = "${var.webservice ? local.target_dns_zone : ""}"
   enable             = "${var.webservice}"
+  all_subdomains     = true
 }
 
 # Lack of a module count means we need to use flags
@@ -170,12 +240,12 @@ module "route53" {
 module "cloudfront" {
   source = "modules/cloudfront"
 
-  origin_domain        = "${var.webservice ? element(concat(module.alb.dns_name, list("")), 0) : ""}"
+  origin_domain        = "${local.cloudfront ? element(concat(module.alb.dns_name, list("")), 0) : ""}"
   origin_id            = "${var.cluster}_${var.workspace}_${var.name}_origin"
   aliases              = ["${local.aliases}"]
   ssl_cert_domain_name = "*.${local.ssl_cert_domain_name}"
   enable_distribution  = true
-  enable               = "${var.webservice}"
+  enable               = "${local.cloudfront}"
 }
 
 # ==============

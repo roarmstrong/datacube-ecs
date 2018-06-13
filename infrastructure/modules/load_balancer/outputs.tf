@@ -13,3 +13,16 @@ output "dns_zone_id" {
 output "alb_name" {
   value = "${var.alb_name}"
 }
+
+output "http_listener_rules" {
+  value = "${local.http_listener_rules}"
+}
+
+output "https_listener_rules" {
+  value = "${local.https_listener_rules}"
+}
+
+output "target_groups" {
+  value = "${local.target_groups}"
+}
+

@@ -1,9 +1,4 @@
-variable "image_name" {
-  type = "string"
-  description = "Name and tag of Docker image"
-}
-
-variable "image_digest" {
-  type = "string"
-  description = "SHA256 Digest of Docker Image"
+variable "images" {
+  type = "map"
+  description = "Map of id name and docker image name. e.g. { blue = opendatacube/wms:1.0 green = opendatacube/wms:1.1 }"
 }

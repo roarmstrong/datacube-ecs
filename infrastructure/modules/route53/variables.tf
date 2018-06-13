@@ -39,3 +39,8 @@ variable "enable" {
   default = false
   description = "Whether to create route53 entry or not"
 }
+
+variable "all_subdomains" {
+  default = true
+  description = "If all subdomains of the specified domain should be routed too"
+}

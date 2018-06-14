@@ -2,7 +2,7 @@
 workspace = "dev-s2-nrt"
 
 # The number of containers to run at once
-task_desired_count = 50
+task_desired_count = 5
 
 # The name of the database that we will pass credentials to
 database = "nrtprod"
@@ -29,3 +29,5 @@ ssl_cert_region = "ap-southeast-2"
 memory = 2048
 
 enable_https = true
+
+use_cloudfront = false
